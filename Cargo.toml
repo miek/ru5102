@@ -1,0 +1,6 @@
+[package]
+name = "ru5102"
+version = "0.1.0"
+authors = ["Mike Walters <mike@flomp.net>"]
+
+[dependencies]
