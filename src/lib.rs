@@ -5,7 +5,7 @@ extern crate serde_derive;
 extern crate bincode;
 extern crate serial;
 
-use bincode::{serialize, deserialize, Infinite, Bounded};
+use bincode::{serialize, Bounded};
 use crc16::{State,MCRF4XX};
 use serde::ser::{Serialize, Serializer, SerializeTuple};
 use std::result::Result;
@@ -34,7 +34,6 @@ struct Command {
 }
 
 fn serialize_command_data<S>(data: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    println!("data");
     let mut seq = serializer.serialize_tuple(data.len())?;
     for d in data {
         seq.serialize_element(&d)?;
@@ -72,11 +71,5 @@ mod tests {
     #[test]
     fn test_crc() {
         assert_eq!(Reader::crc(b"abcdef"), 64265)
-    }
-
-    #[test]
-    fn test_inventory() {
-        let mut reader = Reader::new("/dev/ttyUSB0");
-        reader.inventory();
     }
 }
