@@ -33,6 +33,19 @@ struct Command {
     data: Vec<u8>
 }
 
+impl Command {
+    fn to_bytes(&self) -> bincode::Result<Vec<u8>> {
+        let pkt_len = (self.data.len() + 4) as u8;
+        let serialize_len = (pkt_len - 2) as u64;
+        let mut pkt = serialize(&self, Bounded(serialize_len))?;
+        pkt.insert(0, pkt_len);
+        let crc = Reader::crc(&pkt);
+        let mut crc = serialize(&crc, Bounded(2))?;
+        pkt.append(&mut crc);
+        Ok(pkt)
+    }
+}
+
 fn serialize_command_data<S>(data: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
     let mut seq = serializer.serialize_tuple(data.len())?;
     for d in data {
@@ -52,13 +65,7 @@ impl Reader {
 
     pub fn inventory(&self) -> bincode::Result<Vec<u8>> {
         let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
-        let pkt_len = (cmd.data.len() + 4) as u8;
-        let serialize_len = (pkt_len - 2) as u64;
-        let mut pkt = serialize(&cmd, Bounded(serialize_len))?;
-        pkt.insert(0, pkt_len);
-        let crc = Reader::crc(&pkt);
-        let mut crc = serialize(&crc, Bounded(2))?;
-        pkt.append(&mut crc);
+        let pkt = cmd.to_bytes()?;
         println!("Packet: {:?}", pkt);
         Ok(pkt)
     }
