@@ -2,6 +2,8 @@ extern crate crc16;
 extern crate serial;
 
 use crc16::{State,MCRF4XX};
+use serial::core::prelude::*;
+use std::time::Duration;
 use std::result::Result;
 
 pub struct Reader {
@@ -62,17 +64,46 @@ impl Response {
 
 impl Reader {
     pub fn new(port: &str) -> Reader {
-        Reader { port: serial::open(port).unwrap() }
+        let mut port = serial::open(port).unwrap();
+        port.reconfigure(&|settings| {
+            try!(settings.set_baud_rate(serial::Baud57600));
+            settings.set_char_size(serial::Bits8);
+            settings.set_parity(serial::ParityNone);
+            settings.set_stop_bits(serial::Stop1);
+            settings.set_flow_control(serial::FlowNone);
+            Ok(())
+        });
+
+        port.set_timeout(Duration::from_millis(1000));
+        Reader { port: port }
     }
 
     fn crc(data: &[u8]) -> u16 {
         State::<MCRF4XX>::calculate(data)
     }
 
-    pub fn inventory(&self) -> Result<(), ()> {
+    pub fn inventory(&mut self) -> Result<(), ()> {
         let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
-        let pkt = cmd.to_bytes();
-        println!("Packet: {:?}", pkt);
+        let cmd = cmd.to_bytes();
+        println!("Command: {:?}", cmd);
+        {
+            use std::io::Write;
+            self.port.write(&cmd).unwrap();
+        }
+        let mut len = [0u8; 1];
+        {
+            use std::io::Read;
+            self.port.read_exact(&mut len).unwrap();
+        }
+        let len = len[0];
+        let mut response: Vec<u8> = Vec::with_capacity(len as usize + 1);
+        response.push(len);
+        {
+            use std::io::Read;
+            let reference = self.port.by_ref();
+            reference.take(len as u64).read_to_end(&mut response);
+        }
+        println!("Response: {:?}", response);
         Ok(())
     }
 }
