@@ -35,6 +35,31 @@ impl Command {
     }
 }
 
+#[derive(PartialEq, Debug)]
+struct Response {
+    address: u8,
+    command: u8,
+    status: u8,
+    data: Vec<u8>
+}
+
+impl Response {
+    fn from_bytes(bytes: &[u8]) -> Response {
+        assert_eq!(bytes[0] as usize, bytes.len() - 1);
+        let data_len = bytes.len() - 6;
+        let mut data: Vec<u8> = Vec::with_capacity(data_len);
+        for i in 3..(data_len+3) {
+            data.push(bytes[i]);
+        }
+        Response{
+            address: bytes[1],
+            command: bytes[2],
+            status: bytes[3],
+            data: data
+        }
+    }
+}
+
 impl Reader {
     pub fn new(port: &str) -> Reader {
         Reader { port: serial::open(port).unwrap() }
@@ -70,6 +95,19 @@ mod tests {
                 data: Vec::new()
             }.to_bytes(),
             [4, 10, 0x01, 171, 182]
+        );
+    }
+
+    #[test]
+    fn test_response() {
+        assert_eq!(
+            Response::from_bytes(&[5, 0, 1, 0, 1, 1]),
+            Response{
+                address: 0,
+                command: 1,
+                status: 0,
+                data: Vec::new()
+            }
         );
     }
 }
