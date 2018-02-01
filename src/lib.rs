@@ -79,4 +79,16 @@ mod tests {
     fn test_crc() {
         assert_eq!(Reader::crc(b"abcdef"), 64265)
     }
+
+    #[test]
+    fn test_command() {
+        assert_eq!(
+            Command{
+                address: 10,
+                command: CommandType::Inventory,
+                data: Vec::new()
+            }.to_bytes().unwrap(),
+            [4, 10, 0x01, 171, 182]
+        );
+    }
 }
