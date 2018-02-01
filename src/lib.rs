@@ -1,13 +1,7 @@
 extern crate crc16;
-extern crate serde;
-#[macro_use]
-extern crate serde_derive;
-extern crate bincode;
 extern crate serial;
 
-use bincode::{serialize, Bounded};
 use crc16::{State,MCRF4XX};
-use serde::ser::{Serialize, Serializer, SerializeTuple};
 use std::result::Result;
 
 pub struct Reader {
@@ -19,39 +13,26 @@ enum CommandType {
     Inventory = 0x01
 }
 
-impl Serialize for CommandType {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-       serializer.serialize_u8(*self as u8)
-    }
-}
-
-#[derive(Serialize, PartialEq, Debug)]
+#[derive(PartialEq, Debug)]
 struct Command {
     address: u8,
     command: CommandType,
-    #[serde(serialize_with = "serialize_command_data")]
     data: Vec<u8>
 }
 
 impl Command {
-    fn to_bytes(&self) -> bincode::Result<Vec<u8>> {
+    fn to_bytes(&self) -> Vec<u8> {
         let pkt_len = (self.data.len() + 4) as u8;
-        let serialize_len = (pkt_len - 2) as u64;
-        let mut pkt = serialize(&self, Bounded(serialize_len))?;
-        pkt.insert(0, pkt_len);
+        let mut pkt: Vec<u8> = Vec::new();
+        pkt.push(pkt_len);
+        pkt.push(self.address);
+        pkt.push(self.command as u8);
+        pkt.append(&mut self.data.clone());
         let crc = Reader::crc(&pkt);
-        let mut crc = serialize(&crc, Bounded(2))?;
-        pkt.append(&mut crc);
-        Ok(pkt)
+        pkt.push((crc & 0xFF) as u8);
+        pkt.push(((crc >> 8) & 0xFF) as u8);
+        pkt
     }
-}
-
-fn serialize_command_data<S>(data: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error> where S: Serializer {
-    let mut seq = serializer.serialize_tuple(data.len())?;
-    for d in data {
-        seq.serialize_element(&d)?;
-    }
-    seq.end()
 }
 
 impl Reader {
@@ -63,11 +44,11 @@ impl Reader {
         State::<MCRF4XX>::calculate(data)
     }
 
-    pub fn inventory(&self) -> bincode::Result<Vec<u8>> {
+    pub fn inventory(&self) -> Result<(), ()> {
         let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
-        let pkt = cmd.to_bytes()?;
+        let pkt = cmd.to_bytes();
         println!("Packet: {:?}", pkt);
-        Ok(pkt)
+        Ok(())
     }
 }
 
@@ -87,7 +68,7 @@ mod tests {
                 address: 10,
                 command: CommandType::Inventory,
                 data: Vec::new()
-            }.to_bytes().unwrap(),
+            }.to_bytes(),
             [4, 10, 0x01, 171, 182]
         );
     }
