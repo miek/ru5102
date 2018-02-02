@@ -50,7 +50,7 @@ impl Response {
         assert_eq!(bytes[0] as usize, bytes.len() - 1);
         let data_len = bytes.len() - 6;
         let mut data: Vec<u8> = Vec::with_capacity(data_len);
-        for i in 3..(data_len+3) {
+        for i in 4..(data_len+4) {
             data.push(bytes[i]);
         }
         Response{
