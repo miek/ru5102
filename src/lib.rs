@@ -82,19 +82,10 @@ impl Reader {
         State::<MCRF4XX>::calculate(data)
     }
 
-    pub fn inventory(&mut self) -> Result<(), ()> {
-        let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
-        let cmd = cmd.to_bytes();
-        println!("Command: {:?}", cmd);
-        {
-            use std::io::Write;
-            self.port.write(&cmd).unwrap();
-        }
+    fn send_receive(&mut self, cmd: &[u8]) -> Vec<u8> {
+        std::io::Write::write(&mut self.port, &cmd).unwrap();
         let mut len = [0u8; 1];
-        {
-            use std::io::Read;
-            self.port.read_exact(&mut len).unwrap();
-        }
+        std::io::Read::read_exact(&mut self.port, &mut len).unwrap();
         let len = len[0];
         let mut response: Vec<u8> = Vec::with_capacity(len as usize + 1);
         response.push(len);
@@ -103,6 +94,14 @@ impl Reader {
             let reference = self.port.by_ref();
             reference.take(len as u64).read_to_end(&mut response);
         }
+        response
+    }
+
+    pub fn inventory(&mut self) -> Result<(), ()> {
+        let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
+        let cmd = cmd.to_bytes();
+        println!("Command: {:?}", cmd);
+        let response = Response::from_bytes(&self.send_receive(&cmd));
         println!("Response: {:?}", response);
         Ok(())
     }
