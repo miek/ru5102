@@ -6,6 +6,4 @@ authors = ["Mike Walters <mike@flomp.net>"]
 [dependencies]
 bincode = "*"
 crc16 = "*"
-serde = "*"
-serde_derive = "*"
 serial = "*"
