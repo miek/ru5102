@@ -49,7 +49,7 @@ impl Command {
         pkt.push(self.address);
         pkt.push(self.command as u8);
         pkt.append(&mut self.data.clone());
-        let crc = Reader::crc(&pkt);
+        let crc = Reader::calculate_crc(&pkt);
         pkt.push((crc & 0xFF) as u8);
         pkt.push(((crc >> 8) & 0xFF) as u8);
         pkt
@@ -98,7 +98,7 @@ impl Reader {
         Ok(Reader { port: port })
     }
 
-    fn crc(data: &[u8]) -> u16 {
+    fn calculate_crc(data: &[u8]) -> u16 {
         State::<MCRF4XX>::calculate(data)
     }
 
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn test_crc() {
-        assert_eq!(Reader::crc(b"abcdef"), 64265)
+        assert_eq!(Reader::calculate_crc(b"abcdef"), 64265)
     }
 
     #[test]
