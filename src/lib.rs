@@ -67,16 +67,13 @@ struct Response {
 impl Response {
     fn from_bytes(bytes: &[u8]) -> Response {
         assert_eq!(bytes[0] as usize, bytes.len() - 1);
-        let data_len = bytes.len() - 6;
-        let mut data: Vec<u8> = Vec::with_capacity(data_len);
-        for i in 4..(data_len+4) {
-            data.push(bytes[i]);
-        }
+        let len = bytes.len();
+        let payload = &bytes[1..len-2];
         Response{
-            address: bytes[1],
-            command: bytes[2],
-            status: bytes[3],
-            data: data
+            address: payload[0],
+            command: payload[1],
+            status: payload[2],
+            data: payload[3..].to_vec()
         }
     }
 }
