@@ -3,8 +3,27 @@ extern crate serial;
 
 use crc16::{State,MCRF4XX};
 use serial::core::prelude::*;
+use std::io;
 use std::time::Duration;
 use std::result::Result;
+
+#[derive(Debug)]
+pub enum Error {
+    Io(io::Error),
+    Program(String),
+}
+
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Error {
+        Error::Io(e)
+    }
+}
+
+impl From<String> for Error {
+    fn from(e: String) -> Error {
+        Error::Program(e)
+    }
+}
 
 pub struct Reader {
    port: serial::SystemPort, 
@@ -63,7 +82,7 @@ impl Response {
 }
 
 impl Reader {
-    pub fn new(port: &str) -> Reader {
+    pub fn new(port: &str) -> Result<Reader, Error> {
         let mut port = serial::open(port).unwrap();
         port.reconfigure(&|settings| {
             try!(settings.set_baud_rate(serial::Baud57600));
@@ -72,36 +91,38 @@ impl Reader {
             settings.set_stop_bits(serial::Stop1);
             settings.set_flow_control(serial::FlowNone);
             Ok(())
-        });
+        }).map_err(|e| format!("Failed to configure serial port: {}", e))?;
 
-        port.set_timeout(Duration::from_millis(1000));
-        Reader { port: port }
+        port.set_timeout(Duration::from_millis(1000))
+            .map_err(|e| format!("Failed to set serial port timeout: {}", e))?;
+        Ok(Reader { port: port })
     }
 
     fn crc(data: &[u8]) -> u16 {
         State::<MCRF4XX>::calculate(data)
     }
 
-    fn send_receive(&mut self, cmd: &[u8]) -> Vec<u8> {
-        std::io::Write::write(&mut self.port, &cmd).unwrap();
+    fn send_receive(&mut self, cmd: &[u8]) -> Result<Vec<u8>, Error> {
+        std::io::Write::write(&mut self.port, &cmd)?;
         let mut len = [0u8; 1];
-        std::io::Read::read_exact(&mut self.port, &mut len).unwrap();
+        std::io::Read::read_exact(&mut self.port, &mut len)?;
         let len = len[0];
         let mut response: Vec<u8> = Vec::with_capacity(len as usize + 1);
         response.push(len);
         {
             use std::io::Read;
             let reference = self.port.by_ref();
-            reference.take(len as u64).read_to_end(&mut response);
+            reference.take(len as u64).read_to_end(&mut response)?;
         }
-        response
+        Ok(response)
     }
 
     pub fn inventory(&mut self) -> Result<(), ()> {
         let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
         let cmd = cmd.to_bytes();
         println!("Command: {:?}", cmd);
-        let response = Response::from_bytes(&self.send_receive(&cmd));
+        let response = &self.send_receive(&cmd).unwrap();
+        let response = Response::from_bytes(response);
         println!("Response: {:?}", response);
         Ok(())
     }
