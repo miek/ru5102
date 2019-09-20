@@ -7,3 +7,4 @@ authors = ["Mike Walters <mike@flomp.net>"]
 bincode = "*"
 crc16 = "*"
 serial = "*"
+num_enum = "*"
