@@ -179,7 +179,8 @@ pub struct ReadCommand {
 impl ReadCommand {
     fn to_bytes(&self) -> Vec<u8> {
         let mut pkt: Vec<u8> = Vec::new();
-        pkt.push(self.epc.len().try_into().unwrap());
+        // EPC size is in words, which are 2 bytes long
+        pkt.push(self.epc.len() as u8 / 2);
         pkt.extend(self.epc.clone());
         pkt.push(self.location as u8);
         pkt.push(self.start_address);
@@ -236,7 +237,8 @@ impl Reader {
     }
 
     fn send_receive(&mut self, cmd: Command) -> Result<Response, Error> {
-        std::io::Write::write(&mut self.port, &cmd.to_bytes())?;
+        let cmd_bytes = cmd.to_bytes();
+        std::io::Write::write(&mut self.port, &cmd_bytes)?;
         let mut len = [0u8; 1];
         std::io::Read::read_exact(&mut self.port, &mut len)?;
         let len = len[0];
@@ -282,9 +284,7 @@ impl Reader {
     }
 
     pub fn read_data(&mut self, read_cmd: ReadCommand) -> Result<Vec<u8>, Error> {
-        println!("Req: {:?}", read_cmd);
         let cmd = Command { address: 0, command: CommandType::ReadData, data: read_cmd.to_bytes() };
-        println!("CMD: {:?}", cmd);
         let response = self.send_receive(cmd)?;
 
         if response.status != ResponseStatus::OK {
