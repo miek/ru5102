@@ -2,33 +2,17 @@ extern crate crc16;
 extern crate serial;
 extern crate num_enum;
 
+pub mod error;
+
 use crc16::{State,MCRF4XX};
 use serial::core::prelude::*;
-use std::io;
-use std::time::Duration;
 use std::result::Result;
-use std::convert::TryInto;
+use std::time::Duration;
 use std::convert::TryFrom;
 use num_enum::TryFromPrimitive;
 
+use crate::error::Error;
 
-#[derive(Debug)]
-pub enum Error {
-    Io(io::Error),
-    Program(String),
-}
-
-impl From<io::Error> for Error {
-    fn from(e: io::Error) -> Error {
-        Error::Io(e)
-    }
-}
-
-impl From<String> for Error {
-    fn from(e: String) -> Error {
-        Error::Program(e)
-    }
-}
 
 pub struct Reader {
    port: serial::SystemPort, 
@@ -76,7 +60,7 @@ enum CommandType {
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
-enum ResponseStatus {
+pub enum ResponseStatus {
     OK = 0x00,
     ReturnBeforeInventoryFinished = 0x01,
     ScanTimeOverflow = 0x02,
@@ -85,13 +69,31 @@ enum ResponseStatus {
     AccessPasswordError = 0x05,
     KillTagError = 0x09,
     KillPasswordZero = 0x0A,
+    CommandNotSupported = 0x0B,
+
+    SaveFail = 0x13,
+    CannotAdjust = 0x14,
 
     // TODO: there are more of these
+    CommandExecuteError = 0xF9,
+    PoorCommunication = 0xFA,
     NoTags = 0xFB,
     TagError = 0xFC,
     WrongLength = 0xFD,
     IllegalCommand = 0xFE,
     ParameterError = 0xFF
+}
+
+impl ResponseStatus {
+    fn is_success(&self) -> bool {
+        match self {
+            ResponseStatus::OK => true,
+            ResponseStatus::ReturnBeforeInventoryFinished => true,
+            ResponseStatus::ScanTimeOverflow => true,
+            ResponseStatus::MoreData => true,
+            _ => false
+        }
+    }
 }
 
 #[derive(PartialEq, Debug)]
@@ -158,7 +160,7 @@ pub struct ReaderInformation {
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
-pub enum ReadLocation {
+pub enum MemoryLocation {
     Password = 0x00,
     EPC = 0x01,
     TID = 0x02,
@@ -168,7 +170,7 @@ pub enum ReadLocation {
 #[derive(PartialEq, Debug)]
 pub struct ReadCommand {
     pub epc: Vec<u8>,
-    pub location: ReadLocation,
+    pub location: MemoryLocation,
     pub start_address: u8,
     pub count: u8,
     pub password: Option<Vec<u8>>,
@@ -199,6 +201,68 @@ impl ReadCommand {
         pkt
     }
 }
+
+#[derive(PartialEq, Debug)]
+pub struct WriteCommand {
+    pub epc: Vec<u8>,
+    pub location: MemoryLocation,
+    pub start_address: u8,
+    pub data: Vec<u8>,
+    pub password: Option<Vec<u8>>,
+    pub mask_address: Option<u8>,
+    pub mask_length: Option<u8>
+}
+
+impl WriteCommand {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut pkt: Vec<u8> = Vec::new();
+        // EPC and write size is in words, which are 2 bytes long
+        pkt.push(self.data.len() as u8 / 2);
+        pkt.push(self.epc.len() as u8 / 2);
+        pkt.extend(self.epc.clone());
+        pkt.push(self.location as u8);
+        pkt.push(self.start_address);
+        pkt.extend(self.data.clone());
+        if let Some(p) = &self.password {
+            pkt.extend(p.clone());
+        } else {
+            pkt.extend(vec![0, 0, 0, 0]);
+        }
+        if let Some(addr) = self.mask_address {
+            pkt.push(addr);
+        }
+        if let Some(len) = self.mask_length {
+            pkt.push(len);
+        }
+        pkt
+    }
+}
+
+#[derive(PartialEq, Debug)]
+pub struct KillCommand {
+    pub epc: Vec<u8>,
+    pub password: Vec<u8>,
+    pub mask_address: Option<u8>,
+    pub mask_length: Option<u8>
+}
+
+impl KillCommand {
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut pkt: Vec<u8> = Vec::new();
+        // EPC and write size is in words, which are 2 bytes long
+        pkt.push(self.epc.len() as u8 / 2);
+        pkt.extend(self.epc.clone());
+        pkt.extend(self.password.clone());
+        if let Some(addr) = self.mask_address {
+            pkt.push(addr);
+        }
+        if let Some(len) = self.mask_length {
+            pkt.push(len);
+        }
+        pkt
+    }
+}
+
 
 impl ReaderInformation {
     fn from_bytes(bytes: &[u8]) -> ReaderInformation {
@@ -249,6 +313,7 @@ impl Reader {
             let reference = self.port.by_ref();
             reference.take(len as u64).read_to_end(&mut response)?;
         }
+        println!("Response: {:?}", response);
         let response = Response::from_bytes(&response)?;
         Ok(response)
     }
@@ -256,8 +321,8 @@ impl Reader {
     pub fn reader_information(&mut self) -> Result<ReaderInformation, Error> {
         let cmd = Command { address: 0, command: CommandType::GetReaderInformation, data: Vec::new() };
         let response = self.send_receive(cmd)?;
-        if response.status != ResponseStatus::OK {
-            return Err(Error::Program("Invalid status response to reader_information".to_string()))
+        if !response.status.is_success() {
+            return Err(Error::from(response.status));
         }
         Ok(ReaderInformation::from_bytes(&response.data))
     }
@@ -268,7 +333,10 @@ impl Reader {
 
         if response.status == ResponseStatus::NoTags {
             return Ok(vec![])
+        } else if !response.status.is_success() {
+            return Err(Error::from(response.status));
         }
+
         let num_tags = response.data[0];
         let mut offset = 1;
         let mut tags = Vec::new();
@@ -287,45 +355,62 @@ impl Reader {
         let cmd = Command { address: 0, command: CommandType::ReadData, data: read_cmd.to_bytes() };
         let response = self.send_receive(cmd)?;
 
-        if response.status != ResponseStatus::OK {
-            return Err(Error::Program(format!("Invalid status response to read_data: {:?}", response.status)));
+        if !response.status.is_success() {
+            return Err(Error::from(response.status));
         }
 
         Ok(response.data)
     }
+
+    pub fn write_data(&mut self, write_cmd: WriteCommand) -> Result<(), Error> {
+        let cmd = Command { address: 0, command: CommandType::WriteData, data: write_cmd.to_bytes() };
+        let response = self.send_receive(cmd)?;
+
+        if !response.status.is_success() {
+            return Err(Error::from(response.status));
+        }
+
+        Ok(())
+    }
+
+    pub fn kill(&mut self, kill_cmd: KillCommand) -> Result<(), Error> {
+        let cmd = Command { address: 0, command: CommandType::KillTag, data: kill_cmd.to_bytes() };
+        let response = self.send_receive(cmd)?;
+
+        if !response.status.is_success() {
+            return Err(Error::from(response.status));
+        }
+        Ok(())
+    }
+
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+#[test]
+fn test_crc() {
+    assert_eq!(Reader::calculate_crc(b"abcdef"), 64265)
+}
 
-    #[test]
-    fn test_crc() {
-        assert_eq!(Reader::calculate_crc(b"abcdef"), 64265)
-    }
+#[test]
+fn test_command() {
+    assert_eq!(
+        Command{
+            address: 10,
+            command: CommandType::Inventory,
+            data: Vec::new()
+        }.to_bytes(),
+        [4, 10, 0x01, 171, 182]
+    );
+}
 
-    #[test]
-    fn test_command() {
-        assert_eq!(
-            Command{
-                address: 10,
-                command: CommandType::Inventory,
-                data: Vec::new()
-            }.to_bytes(),
-            [4, 10, 0x01, 171, 182]
-        );
-    }
-
-    #[test]
-    fn test_response() {
-        assert_eq!(
-            Response::from_bytes(&[5, 0, 1, 0, 1, 1]),
-            Response{
-                address: 0,
-                command: 1,
-                status: 0,
-                data: Vec::new()
-            }
-        );
-    }
+#[test]
+fn test_response() {
+    assert_eq!(
+        Response::from_bytes(&[5, 0, 1, 251, 242, 61]).unwrap(),
+        Response{
+            address: 0,
+            command: 1,
+            status: ResponseStatus::NoTags,
+            data: Vec::new()
+        }
+    );
 }
