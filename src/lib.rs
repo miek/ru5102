@@ -313,7 +313,6 @@ impl Reader {
             let reference = self.port.by_ref();
             reference.take(len as u64).read_to_end(&mut response)?;
         }
-        println!("Response: {:?}", response);
         let response = Response::from_bytes(&response)?;
         Ok(response)
     }
