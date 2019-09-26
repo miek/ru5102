@@ -1,11 +1,18 @@
+///! Error types
 use std::io;
 use crate::ResponseStatus;
 
+pub type Result<T> = std::result::Result<T, Error>;
+
 #[derive(Debug)]
 pub enum Error {
+    /// Error communicating with the reader
     Io(io::Error),
+    /// Error communicating with the tag - usually transient and may be retried
     Communication(ResponseStatus),
+    /// Error returned from the tag
     Protocol(ResponseStatus),
+    /// Incorrect parameters, or internal library error
     Program(String),
 }
 
@@ -26,6 +33,11 @@ impl From<ResponseStatus> for Error {
         match e {
             ResponseStatus::PoorCommunication => Error::Communication(e),
             ResponseStatus::NoTags => Error::Communication(e),
+
+            ResponseStatus::AccessPasswordError => Error::Protocol(e),
+            ResponseStatus::KillTagError => Error::Protocol(e),
+            ResponseStatus::KillPasswordZero => Error::Protocol(e),
+            ResponseStatus::CommandNotSupported => Error::Protocol(e),
 
             ResponseStatus::WrongLength => Error::Program("Wrong command length".to_string()),
             ResponseStatus::IllegalCommand => Error::Program("Illegal command".to_string()),

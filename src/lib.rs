@@ -1,21 +1,21 @@
+///! Driver for the RU5102 UHF RFID reader
 extern crate crc16;
-extern crate serial;
 extern crate num_enum;
+extern crate serial;
 
 pub mod error;
 
-use crc16::{State,MCRF4XX};
-use serial::core::prelude::*;
-use std::result::Result;
-use std::time::Duration;
-use std::convert::TryFrom;
+use crc16::{State, MCRF4XX};
 use num_enum::TryFromPrimitive;
+use serial::core::prelude::*;
+use std::convert::TryFrom;
+use std::time::Duration;
 
-use crate::error::Error;
-
+use crate::error::{Error, Result};
 
 pub struct Reader {
-   port: serial::SystemPort, 
+    port: serial::SystemPort,
+    address: u8,
 }
 
 #[derive(Copy, Clone, PartialEq, Debug)]
@@ -54,9 +54,8 @@ enum CommandType {
     SetScanTime = 0x25,
     SetBaudRate = 0x28,
     SetPower = 0x2F,
-    AcoustoOpticControl = 0x33
+    AcoustoOpticControl = 0x33,
 }
-
 
 #[derive(Debug, Eq, PartialEq, TryFromPrimitive)]
 #[repr(u8)]
@@ -81,7 +80,7 @@ pub enum ResponseStatus {
     TagError = 0xFC,
     WrongLength = 0xFD,
     IllegalCommand = 0xFE,
-    ParameterError = 0xFF
+    ParameterError = 0xFF,
 }
 
 impl ResponseStatus {
@@ -91,7 +90,7 @@ impl ResponseStatus {
             ResponseStatus::ReturnBeforeInventoryFinished => true,
             ResponseStatus::ScanTimeOverflow => true,
             ResponseStatus::MoreData => true,
-            _ => false
+            _ => false,
         }
     }
 }
@@ -100,7 +99,7 @@ impl ResponseStatus {
 struct Command {
     address: u8,
     command: CommandType,
-    data: Vec<u8>
+    data: Vec<u8>,
 }
 
 impl Command {
@@ -123,30 +122,29 @@ struct Response {
     address: u8,
     command: u8,
     status: ResponseStatus,
-    data: Vec<u8>
+    data: Vec<u8>,
 }
 
 impl Response {
-    fn from_bytes(bytes: &[u8]) -> Result<Response, Error> {
+    fn from_bytes(bytes: &[u8]) -> Result<Response> {
         assert_eq!(bytes[0] as usize, bytes.len() - 1);
         let len = bytes.len();
 
-        let crc = Reader::calculate_crc(&bytes[0..len-2]);
-        let payload_crc: u16 = ((bytes[len-1] as u16) << 8) + bytes[len-2] as u16;
+        let crc = Reader::calculate_crc(&bytes[0..len - 2]);
+        let payload_crc: u16 = ((bytes[len - 1] as u16) << 8) + bytes[len - 2] as u16;
         if payload_crc != crc {
-            return Err(Error::Program("Bad CRC".to_string()))
+            return Err(Error::Program("Bad CRC".to_string()));
         }
 
-        let payload = &bytes[1..len-2];
-        Ok(Response{
+        let payload = &bytes[1..len - 2];
+        Ok(Response {
             address: payload[0],
             command: payload[1],
             status: ResponseStatus::try_from(payload[2]).unwrap(),
-            data: payload[3..].to_vec()
+            data: payload[3..].to_vec(),
         })
     }
 }
-
 
 #[derive(PartialEq, Debug)]
 pub struct ReaderInformation {
@@ -156,7 +154,7 @@ pub struct ReaderInformation {
     max_freq: u8,
     min_freq: u8,
     power: u8,
-    scan_time: u8
+    scan_time: u8,
 }
 
 #[derive(PartialEq, Debug, Copy, Clone)]
@@ -164,7 +162,7 @@ pub enum MemoryLocation {
     Password = 0x00,
     EPC = 0x01,
     TID = 0x02,
-    User = 0x03
+    User = 0x03,
 }
 
 #[derive(PartialEq, Debug)]
@@ -175,7 +173,7 @@ pub struct ReadCommand {
     pub count: u8,
     pub password: Option<Vec<u8>>,
     pub mask_address: Option<u8>,
-    pub mask_length: Option<u8>
+    pub mask_length: Option<u8>,
 }
 
 impl ReadCommand {
@@ -210,7 +208,7 @@ pub struct WriteCommand {
     pub data: Vec<u8>,
     pub password: Option<Vec<u8>>,
     pub mask_address: Option<u8>,
-    pub mask_length: Option<u8>
+    pub mask_length: Option<u8>,
 }
 
 impl WriteCommand {
@@ -243,7 +241,7 @@ pub struct KillCommand {
     pub epc: Vec<u8>,
     pub password: Vec<u8>,
     pub mask_address: Option<u8>,
-    pub mask_length: Option<u8>
+    pub mask_length: Option<u8>,
 }
 
 impl KillCommand {
@@ -263,7 +261,6 @@ impl KillCommand {
     }
 }
 
-
 impl ReaderInformation {
     fn from_bytes(bytes: &[u8]) -> ReaderInformation {
         assert_eq!(bytes.len(), 8);
@@ -274,13 +271,13 @@ impl ReaderInformation {
             max_freq: bytes[4],
             min_freq: bytes[5],
             power: bytes[6],
-            scan_time: bytes[7]
+            scan_time: bytes[7],
         }
     }
 }
 
 impl Reader {
-    pub fn new(port: &str) -> Result<Reader, Error> {
+    pub fn new(port: &str) -> Result<Reader> {
         let mut port = serial::open(port).unwrap();
         port.reconfigure(&|settings| {
             try!(settings.set_baud_rate(serial::Baud57600));
@@ -289,18 +286,22 @@ impl Reader {
             settings.set_stop_bits(serial::Stop1);
             settings.set_flow_control(serial::FlowNone);
             Ok(())
-        }).map_err(|e| format!("Failed to configure serial port: {}", e))?;
+        })
+        .map_err(|e| format!("Failed to configure serial port: {}", e))?;
 
         port.set_timeout(Duration::from_millis(1000))
             .map_err(|e| format!("Failed to set serial port timeout: {}", e))?;
-        Ok(Reader { port: port })
+        Ok(Reader {
+            port: port,
+            address: 0,
+        })
     }
 
     fn calculate_crc(data: &[u8]) -> u16 {
         State::<MCRF4XX>::calculate(data)
     }
 
-    fn send_receive(&mut self, cmd: Command) -> Result<Response, Error> {
+    fn send_receive(&mut self, cmd: Command) -> Result<Response> {
         let cmd_bytes = cmd.to_bytes();
         std::io::Write::write(&mut self.port, &cmd_bytes)?;
         let mut len = [0u8; 1];
@@ -317,8 +318,13 @@ impl Reader {
         Ok(response)
     }
 
-    pub fn reader_information(&mut self) -> Result<ReaderInformation, Error> {
-        let cmd = Command { address: 0, command: CommandType::GetReaderInformation, data: Vec::new() };
+    /// Fetch information on the reader in a ReaderInformation structure
+    pub fn reader_information(&mut self) -> Result<ReaderInformation> {
+        let cmd = Command {
+            address: self.address,
+            command: CommandType::GetReaderInformation,
+            data: Vec::new(),
+        };
         let response = self.send_receive(cmd)?;
         if !response.status.is_success() {
             return Err(Error::from(response.status));
@@ -326,12 +332,19 @@ impl Reader {
         Ok(ReaderInformation::from_bytes(&response.data))
     }
 
-    pub fn inventory(&mut self) -> Result<Vec<Vec<u8>>, Error> {
-        let cmd = Command { address: 0, command: CommandType::Inventory, data: Vec::new() };
+    /// Inventory all tags in the reader's range.
+    ///
+    /// Returns a vector of tag IDs.
+    pub fn inventory(&mut self) -> Result<Vec<Vec<u8>>> {
+        let cmd = Command {
+            address: self.address,
+            command: CommandType::Inventory,
+            data: Vec::new(),
+        };
         let response = self.send_receive(cmd)?;
 
         if response.status == ResponseStatus::NoTags {
-            return Ok(vec![])
+            return Ok(vec![]);
         } else if !response.status.is_success() {
             return Err(Error::from(response.status));
         }
@@ -343,15 +356,19 @@ impl Reader {
         for _i in 0..num_tags {
             let tag_len = response.data[offset];
             offset += 1;
-            tags.push(response.data[offset..(offset+tag_len as usize)].to_vec());
+            tags.push(response.data[offset..(offset + tag_len as usize)].to_vec());
             offset += tag_len as usize;
         }
-        
+
         Ok(tags)
     }
 
-    pub fn read_data(&mut self, read_cmd: ReadCommand) -> Result<Vec<u8>, Error> {
-        let cmd = Command { address: 0, command: CommandType::ReadData, data: read_cmd.to_bytes() };
+    pub fn read_data(&mut self, read_cmd: ReadCommand) -> Result<Vec<u8>> {
+        let cmd = Command {
+            address: self.address,
+            command: CommandType::ReadData,
+            data: read_cmd.to_bytes(),
+        };
         let response = self.send_receive(cmd)?;
 
         if !response.status.is_success() {
@@ -361,8 +378,12 @@ impl Reader {
         Ok(response.data)
     }
 
-    pub fn write_data(&mut self, write_cmd: WriteCommand) -> Result<(), Error> {
-        let cmd = Command { address: 0, command: CommandType::WriteData, data: write_cmd.to_bytes() };
+    pub fn write_data(&mut self, write_cmd: WriteCommand) -> Result<()> {
+        let cmd = Command {
+            address: self.address,
+            command: CommandType::WriteData,
+            data: write_cmd.to_bytes(),
+        };
         let response = self.send_receive(cmd)?;
 
         if !response.status.is_success() {
@@ -372,8 +393,13 @@ impl Reader {
         Ok(())
     }
 
-    pub fn kill(&mut self, kill_cmd: KillCommand) -> Result<(), Error> {
-        let cmd = Command { address: 0, command: CommandType::KillTag, data: kill_cmd.to_bytes() };
+    /// Send a KillCommand
+    pub fn kill(&mut self, kill_cmd: KillCommand) -> Result<()> {
+        let cmd = Command {
+            address: self.address,
+            command: CommandType::KillTag,
+            data: kill_cmd.to_bytes(),
+        };
         let response = self.send_receive(cmd)?;
 
         if !response.status.is_success() {
@@ -381,7 +407,6 @@ impl Reader {
         }
         Ok(())
     }
-
 }
 
 #[test]
@@ -392,11 +417,12 @@ fn test_crc() {
 #[test]
 fn test_command() {
     assert_eq!(
-        Command{
+        Command {
             address: 10,
             command: CommandType::Inventory,
             data: Vec::new()
-        }.to_bytes(),
+        }
+        .to_bytes(),
         [4, 10, 0x01, 171, 182]
     );
 }
@@ -405,7 +431,7 @@ fn test_command() {
 fn test_response() {
     assert_eq!(
         Response::from_bytes(&[5, 0, 1, 251, 242, 61]).unwrap(),
-        Response{
+        Response {
             address: 0,
             command: 1,
             status: ResponseStatus::NoTags,
