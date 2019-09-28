@@ -278,7 +278,8 @@ impl ReaderInformation {
 
 impl Reader {
     pub fn new(port: &str) -> Result<Reader> {
-        let mut port = serial::open(port).unwrap();
+        let mut port = serial::open(port)
+            .map_err(|e| format!("Unable to connect to serial port {}: {:?}", port, e))?;
         port.reconfigure(&|settings| {
             try!(settings.set_baud_rate(serial::Baud57600));
             settings.set_char_size(serial::Bits8);
