@@ -1,4 +1,4 @@
-///! Driver for the RU5102 UHF RFID reader
+//! Driver for the CF-RU5102 UHF RFID reader
 extern crate crc16;
 extern crate num_enum;
 extern crate serial;

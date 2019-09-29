@@ -1,10 +1,15 @@
 [package]
 name = "ru5102"
+description = "Library for the CF-RU5102 UHF RFID reader"
 version = "0.1.0"
+homepage = "https://github.com/russss/rust-gs1"
+repository = "https://github.com/miek/ru5102"
+readme = "README.md"
+license = "LGPL-3.0-or-later"
 authors = ["Mike Walters <mike@flomp.net>", "Russ Garrett <russ@garrett.co.uk>"]
 
 [dependencies]
-bincode = "*"
-crc16 = "*"
-serial = "*"
-num_enum = "*"
+bincode = "1.2.0"
+crc16 = "0.4.0"
+serial = "0.4.0"
+num_enum = "0.4.1"
