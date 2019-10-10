@@ -2,6 +2,7 @@
 extern crate crc16;
 extern crate num_enum;
 extern crate serial;
+extern crate failure;
 
 pub mod error;
 
