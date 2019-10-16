@@ -132,7 +132,7 @@ impl Response {
         let len = bytes.len();
 
         let crc = Reader::calculate_crc(&bytes[0..len - 2]);
-        let payload_crc: u16 = ((bytes[len - 1] as u16) << 8) + bytes[len - 2] as u16;
+        let payload_crc: u16 = (u16::from(bytes[len - 1]) << 8) + u16::from(bytes[len - 2]);
         if payload_crc != crc {
             return Err(Error::Program("Bad CRC".to_string()));
         }
@@ -294,7 +294,7 @@ impl Reader {
         port.set_timeout(Duration::from_millis(1000))
             .map_err(|e| format!("Failed to set serial port timeout: {}", e))?;
         Ok(Reader {
-            port: port,
+            port,
             address: 0,
         })
     }
@@ -314,7 +314,7 @@ impl Reader {
         {
             use std::io::Read;
             let reference = self.port.by_ref();
-            reference.take(len as u64).read_to_end(&mut response)?;
+            reference.take(u64::from(len)).read_to_end(&mut response)?;
         }
         let response = Response::from_bytes(&response)?;
         Ok(response)
